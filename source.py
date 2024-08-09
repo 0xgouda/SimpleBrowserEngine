@@ -3,9 +3,27 @@ import ssl
 
 class URL:
     def __init__(self, url):
-        # ensures that https or http is in use
-        self.scheme, url = url.split("://", 1)
-        assert self.scheme in ["http", "https"]
+        # checks if view-source scheme is in use
+        self.scheme, url = url.split(":", 1)
+        assert self.scheme in ["http", "https", "file", "data", "view-source"]
+        self.view_source = False
+        if self.scheme == "view-source":
+            self.view_source = True
+
+        # check if data scheme is in use
+        self.scheme, url = url.split(":", 1)
+        if self.scheme == "data":
+            self.mediatype, self.data = url.split(",", 1)
+            return
+
+        # ensures that https or http or data or file is in use
+        self.scheme, url = url.split("//", 1)
+        
+
+        # if file won't go further with http stuff
+        if self.scheme == "file":
+            self.host = url
+            return
 
         # assigns the host and path to variables
         if "/" not in url:
@@ -70,21 +88,44 @@ class URL:
         s.close()
         return content
 
+    def open_file(self):
+        file = open(self.host, 'r')
+        return file.read()
+
+
 def show(body):
     # printing page text
     in_tag = False
+    result = ""
     for c in body:
         if c == "<":
             in_tag = True
         elif c == ">":
             in_tag = False
-        elif not in_tag:
-            print(c, end="")
+        elif not in_tag:   
+            result += c
+
+    print(result.replace("&lt;", "<").replace("&gt;", ">"))
     
 def load(url):
-    body = url.request()
-    show(body)
+    if url.scheme == "file":
+        body = url.open_file()
+    elif url.scheme in ["http", "https"]:
+        body = url.request()
+    elif url.scheme == "data": 
+        body = url.data
+    
+    if url.view_source == True:
+        print(body)
+    else:
+        show(body)
 
 if __name__ == "__main__":
     import sys
-    load(URL(sys.argv[1]))
+    
+    try:
+        url = sys.argv[1]
+    except IndexError:
+        url = "file:///home/ahmed/index.html"
+
+    load(URL(url))
