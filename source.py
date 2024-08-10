@@ -1,5 +1,6 @@
 import socket
 import ssl
+import time
 
 class URL:
     def __init__(self, url, redirect_count):
@@ -12,6 +13,9 @@ class URL:
 
         # save the number of redirects
         self.redirect_count = redirect_count
+
+        # initialize the cache dictionary
+        self.cache = {}
 
         # no socket connections exist
         self.s = None
@@ -68,33 +72,86 @@ class URL:
         
         return s
 
+    # handles redirection
+    def redirect(self, response_headers):
+        if self.redirect_count > 5:
+                return "Error due to too much redirects"
+        self.redirect_count += 1
+
+        location = response_headers["location"]
+        if location[0] == "/":
+            self.path = location
+        else:
+            self.__init__(location, self.redirect_count)
+        return self.request()
+
+    # caching responses
+    def cache_reponse(self, key, status_line, content, reponse_headers):
+        if status_line.split(" ", 2)[1] == "200":
+            maxage = 3600
+            if "cache-control" in reponse_headers:
+                cache_control = reponse_headers["cache-control"].strip().lower()
+                if ',' not in cache_control:
+                    if 'no-store' in cache_control:
+                        return
+                    elif 'max-age=' in cache_control:
+                        try:
+                            maxage = int(cache_control.split("=", 1)[1])
+                        except ValueError:
+                            maxage = 3600
+                
+            expiration_date = time.time() + maxage
+            self.cache[key] = [status_line, content, reponse_headers, expiration_date]
+
+    # retrieve cached reponses
+    def get_cached_response(self, key):
+        if key in self.cache:
+            cached_content = self.cache[key]
+            expiration_date = cached_content[3]
+            if time.time() <= expiration_date:
+                return cached_content[:3]
+            else:
+                del self.cache[key]
+        return None
+
     # sends the request and receives the response
     def request(self):
-        
-        if self.s is None or self.connection != self.host:
-            self.s = self.create_socket()
+        key = self.scheme + "://" + self.host + self.path
+        cached = self.get_cached_response(key)
+        if cached == None:
+            if self.s is None or self.connection != self.host:
+                self.s = self.create_socket()
 
-        # sends the request
-        request = "GET {} HTTP/1.1\r\n".format(self.path)
-        request += "Host: {}\r\n".format(self.host)
-        request += "User-Agent: the browser of gouda\r\n"
-        request += "\r\n"
-        self.s.send(request.encode("utf8"))
+            # sends the request
+            request = "GET {} HTTP/1.1\r\n".format(self.path)
+            request += "Host: {}\r\n".format(self.host)
+            request += "User-Agent: the browser of gouda\r\n"
+            request += "\r\n"
+            self.s.send(request.encode("utf8"))
 
-        # receiving the response
-        response = self.s.makefile("r", encoding="utf8", newline="\r\n")
+            # receiving the response
+            response = self.s.makefile("r", encoding="utf8", newline="\r\n")
 
-        # assigning reponse to variables
-        statusline = response.readline()
-        version, status, explanation = statusline.split(" ", 2)
+            # assigning reponse to variables
+            statusline = response.readline()
+            version, status, explanation = statusline.split(" ", 2)
 
-        response_headers = {}
-        while True:
-            line = response.readline()
-            if line == "\r\n": break
-            header, value = line.split(":", 1)
-            response_headers[header.casefold()] = value.strip()
+            response_headers = {}
+            while True:
+                line = response.readline()
+                if line == "\r\n": break
+                header, value = line.split(":", 1)
+                response_headers[header.casefold()] = value.strip()
 
+            # Caching the response
+            content = response.read(int(response_headers.get("content-length", 0)))
+            self.cache_reponse(key, statusline, content, response_headers)
+        else:
+            version, status, explanation = cached[0].split(" ", 2)
+            content = cached[1]
+            response_headers = cached[2]
+
+    
         # ensures that no encoding is used
         assert "transfer-encoding" not in response_headers
         assert "content-encoding" not in response_headers
@@ -102,21 +159,9 @@ class URL:
         # handle redirects
         status = int(status)
         if status >= 300 and status < 400:
-            if self.redirect_count > 5:
-                return "Error due to too much redirects"
-
-            self.redirect_count += 1
-
-            location = response_headers["location"]
-            if location[0] == "/":
-                self.path = location
-            else:
-                self.__init__(location, self.redirect_count)
-            return self.request()
+            return self.redirect(response_headers)
         else:
             # returning the body
-            content = response.read(int(response_headers.get("content-length", 0)))
-            self.close()
             return content
 
     # closes the socket connection
@@ -125,6 +170,7 @@ class URL:
             self.s.close()
             self.s = None
 
+    # open local files
     def open_file(self):
         file = open(self.host, 'r')
         return file.read()
@@ -164,5 +210,4 @@ if __name__ == "__main__":
         url = sys.argv[1]
     except IndexError:
         url = "file:///home/ahmed/index.html"
-
     load(URL(url, 0))
