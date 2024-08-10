@@ -2,7 +2,7 @@ import socket
 import ssl
 
 class URL:
-    def __init__(self, url):
+    def __init__(self, url, redirect_count):
         # checks if view-source scheme is in use
         self.scheme, url = url.split(":", 1)
         assert self.scheme in ["http", "https", "file", "data", "view-source"]
@@ -10,14 +10,20 @@ class URL:
         if self.scheme == "view-source":
             self.view_source = True
 
+        # save the number of redirects
+        self.redirect_count = redirect_count
+
+        # no socket connections exist
+        self.s = None
+        self.connection = None
+
         # check if data scheme is in use
-        self.scheme, url = url.split(":", 1)
         if self.scheme == "data":
             self.mediatype, self.data = url.split(",", 1)
             return
 
         # ensures that https or http or data or file is in use
-        self.scheme, url = url.split("//", 1)
+        url = url.split("//", 1)[1]
         
 
         # if file won't go further with http stuff
@@ -42,8 +48,11 @@ class URL:
             self.host, port = self.host.split(":", 1)
             self.port = int(port)
     
-    # sends the request and receives the response
-    def request(self):
+    # creates the connection socket
+    def create_socket(self):
+        # save the current connection's host
+        self.connection = self.host
+
         # create a socket and establish the connection
         s = socket.socket(
             family = socket.AF_INET,
@@ -52,21 +61,28 @@ class URL:
         )
         s.connect((self.host, self.port))
         
-        # create the ssl context
+        # create the ssl contexsocket 
         if self.scheme == "https":
             ctx = ssl.create_default_context()
             s = ctx.wrap_socket(s, server_hostname=self.host)
+        
+        return s
+
+    # sends the request and receives the response
+    def request(self):
+        
+        if self.s is None or self.connection != self.host:
+            self.s = self.create_socket()
 
         # sends the request
         request = "GET {} HTTP/1.1\r\n".format(self.path)
         request += "Host: {}\r\n".format(self.host)
-        request += "Connection: close\r\n"
         request += "User-Agent: the browser of gouda\r\n"
         request += "\r\n"
-        s.send(request.encode("utf8"))
+        self.s.send(request.encode("utf8"))
 
         # receiving the response
-        response = s.makefile("r", encoding="utf8", newline="\r\n")
+        response = self.s.makefile("r", encoding="utf8", newline="\r\n")
 
         # assigning reponse to variables
         statusline = response.readline()
@@ -83,10 +99,31 @@ class URL:
         assert "transfer-encoding" not in response_headers
         assert "content-encoding" not in response_headers
 
-        # returning the body
-        content = response.read()
-        s.close()
-        return content
+        # handle redirects
+        status = int(status)
+        if status >= 300 and status < 400:
+            if self.redirect_count > 5:
+                return "Error due to too much redirects"
+
+            self.redirect_count += 1
+
+            location = response_headers["location"]
+            if location[0] == "/":
+                self.path = location
+            else:
+                self.__init__(location, self.redirect_count)
+            return self.request()
+        else:
+            # returning the body
+            content = response.read(int(response_headers.get("content-length", 0)))
+            self.close()
+            return content
+
+    # closes the socket connection
+    def close(self):
+        if self.s:
+            self.s.close()
+            self.s = None
 
     def open_file(self):
         file = open(self.host, 'r')
@@ -128,4 +165,4 @@ if __name__ == "__main__":
     except IndexError:
         url = "file:///home/ahmed/index.html"
 
-    load(URL(url))
+    load(URL(url, 0))
