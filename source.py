@@ -1,6 +1,7 @@
 import socket
 import ssl
 import time
+import gzip
 
 class URL:
     def __init__(self, url, redirect_count):
@@ -65,7 +66,7 @@ class URL:
         )
         s.connect((self.host, self.port))
         
-        # create the ssl contexsocket 
+        # create the ssl context socket 
         if self.scheme == "https":
             ctx = ssl.create_default_context()
             s = ctx.wrap_socket(s, server_hostname=self.host)
@@ -126,35 +127,50 @@ class URL:
             request = "GET {} HTTP/1.1\r\n".format(self.path)
             request += "Host: {}\r\n".format(self.host)
             request += "User-Agent: the browser of gouda\r\n"
+            request += "Accept-Encoding: gzip\r\n"
             request += "\r\n"
             self.s.send(request.encode("utf8"))
 
             # receiving the response
-            response = self.s.makefile("r", encoding="utf8", newline="\r\n")
-
-            # assigning reponse to variables
-            statusline = response.readline()
+            response = self.s.makefile("rb")
+            
+            # assigning reponse headers to variables
+            statusline = response.readline().decode("utf-8")
             version, status, explanation = statusline.split(" ", 2)
-
+            
             response_headers = {}
             while True:
-                line = response.readline()
+                line = response.readline().decode("utf-8")
                 if line == "\r\n": break
                 header, value = line.split(":", 1)
                 response_headers[header.casefold()] = value.strip()
 
+            # gathers the data if sent chunked
+            if "transfer-encoding" in response_headers:
+                chunks = []
+                while True:
+                    chunk_size_hex = response.readline().decode("utf-8").strip()
+                    if chunk_size_hex == '':
+                        break
+                    chunk_size = int(chunk_size_hex, 16)
+                    chunks.append(response.read(chunk_size))
+                
+                response = bytearray()
+                for data in chunks:
+                    response += data
+            
+            # decodes the data if gzip encoded
+            if "content-encoding" in response_headers:
+                 content = gzip.decompress(response).decode("utf-8")
+            else:
+                 content = response.read().decode("utf-8")
+
             # Caching the response
-            content = response.read(int(response_headers.get("content-length", 0)))
             self.cache_reponse(key, statusline, content, response_headers)
         else:
             version, status, explanation = cached[0].split(" ", 2)
             content = cached[1]
             response_headers = cached[2]
-
-    
-        # ensures that no encoding is used
-        assert "transfer-encoding" not in response_headers
-        assert "content-encoding" not in response_headers
 
         # handle redirects
         status = int(status)
