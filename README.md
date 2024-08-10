@@ -1,2 +1,8 @@
 # SimpleBrowserEngine
-A basic implementation of a web browser, showcasing fundamental browser features and custom rendering. Ideal for educational purposes and understanding browser architecture.
+
+A lightweight web browser implementation designed to demonstrate core browser functionalities and custom rendering techniques.
+
+## Usage
+
+```bash
+python3 source.py https://example.org
