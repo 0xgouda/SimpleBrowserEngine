@@ -2,6 +2,7 @@ import socket
 import ssl
 import time
 import tkinter
+import sys
 
 class URL:
     def __init__(self, url, redirect_count=0):
@@ -289,10 +290,10 @@ class Browser:
         self.canvas.delete("all")
         try:
             for x, y, c in self.display_list:
-                # excludes the chars under the viewport
-                if y > self.scroll + HEIGHT: continue
-                # excludes the chars above the viewport
-                if y + VSTEP < self.scroll: continue
+                # excludes the chars under and above the viewport
+                if (y > self.scroll + HEIGHT or y + VSTEP < self.scroll): 
+                    continue
+            
                 self.canvas.create_text(x, y - self.scroll, text=c)
 
             total_height = self.display_list[-1][1] + VSTEP
@@ -328,10 +329,13 @@ def lex(body):
     return text
     
 if __name__ == "__main__":
-    import sys
+    if '-h' in sys.argv or '--help' in sys.argv:
+        print("-h or --help: show help menu\n")
+        exit()
     try:
         url = sys.argv[1]
     except:
-        url = "no url provided"
+        print("-h or --help: show help menu\nusage: python3 source.py http[s]://example.org")
+        exit()
     Browser().load(URL(url))
     tkinter.mainloop()
