@@ -209,10 +209,11 @@ def layout(text):
     for c in text:
         display_list.append((cursor_x, cursor_y, c))
         cursor_x += HSTEP
+        
         if cursor_x >= WIDTH - HSTEP or c == '\n':
             cursor_y += VSTEP
             cursor_x = HSTEP
-
+            
     return display_list
 
 class Browser:
@@ -224,7 +225,7 @@ class Browser:
             width = WIDTH,
             height = HEIGHT
         )
-        self.canvas.pack()
+        self.canvas.pack(fill=tkinter.BOTH, expand=True)
 
         # saves the scrolled distance for later user
         self.scroll = 0
@@ -235,6 +236,9 @@ class Browser:
         self.window.bind("<MouseWheel>",self.on_mouse_wheel) # for windows/macos
         self.window.bind("<Button-4>", self.on_mouse_scroll) # linux scroll up
         self.window.bind("<Button-5>", self.on_mouse_scroll) # linux scroll down
+
+        # call the resize method when and resizing happens
+        self.window.bind("<Configure>", self.resize)
 
     def load(self, url):
         # determine type of action based on scheme
@@ -247,12 +251,19 @@ class Browser:
 
         # view source required or not
         if url.view_source == False:
-            text = lex(body)
+            self.text = lex(body)
         else: 
-            text = body
+            self.text = body
         
         # displays the the text
-        self.display_list = layout(text)
+        self.display_list = layout(self.text)
+        self.draw()
+
+    # resizes the screen
+    def resize(self, e):
+        global WIDTH, HEIGHT
+        WIDTH, HEIGHT = e.width, e.height
+        self.display_list = layout(self.text)
         self.draw()
 
     # methods to call when arrow keys or mouse wheel are triggered
