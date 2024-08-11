@@ -1,8 +1,9 @@
 import socket
 import ssl
 import time
-import gzip
 import tkinter
+
+### to be implemented blank page if there is no content returned
 
 class URL:
     def __init__(self, url, redirect_count=0):
@@ -101,7 +102,7 @@ class URL:
                         try:
                             maxage = int(cache_control.split("=", 1)[1])
                         except ValueError:
-                            maxage = 3600
+                            maxage = 7200
                 
             expiration_date = time.time() + maxage
             self.cache[key] = [status_line, content, reponse_headers, expiration_date]
@@ -129,47 +130,24 @@ class URL:
             request = "GET {} HTTP/1.1\r\n".format(self.path)
             request += "Host: {}\r\n".format(self.host)
             request += "User-Agent: the browser of gouda\r\n"
-            request += "Accept-Encoding: gzip\r\n"
             request += "\r\n"
             self.s.send(request.encode("utf8"))
 
             # receiving the response
-            response = self.s.makefile("rb")
+            response = self.s.makefile("r", encoding="utf-8", newline="\r\n")
             
             # assigning reponse headers to variables
-            statusline = response.readline().decode("utf-8")
+            statusline = response.readline()
             version, status, explanation = statusline.split(" ", 2)
             
             response_headers = {}
             while True:
-                line = response.readline().decode("utf-8")
+                line = response.readline()
                 if line == "\r\n": break
                 header, value = line.split(":", 1)
                 response_headers[header.casefold()] = value.strip()
 
-            # gathers the data if sent chunked
-            if "transfer-encoding" in response_headers:
-                chunks = []
-                while True:
-                    chunk_size_hex = response.readline().decode("utf-8").strip()
-                    if chunk_size_hex == '':
-                        break
-                    chunk_size = int(chunk_size_hex, 16)
-                    chunks.append(response.read(chunk_size))
-                
-                response = bytearray()
-                for data in chunks:
-                    response += data
-            else:
-                response = response.read()
-
-            # decodes the data if gzip encoded
-            if "content-encoding" in response_headers:
-                content = gzip.decompress(response).decode("utf-8")
-            elif "transfer-encoding" in response_headers:
-                content = response.decode("utf-8").read()
-            else:
-                content = response.decode("utf-8")
+            content = response.read(int(response_headers.get("content-length", 0)))
 
             # Caching the response
             self.cache_reponse(key, statusline, content, response_headers)
@@ -213,13 +191,14 @@ def layout(text):
         if cursor_x >= WIDTH - HSTEP or c == '\n':
             cursor_y += VSTEP
             cursor_x = HSTEP
-            
+
     return display_list
 
 class Browser:
     def __init__(self):
         # creates a windows and attaches it to a canvas
         self.window = tkinter.Tk()
+        self.title = "gouda space"
         self.canvas = tkinter.Canvas(
             self.window,
             width = WIDTH,
@@ -308,6 +287,20 @@ class Browser:
             # excludes the chars above the viewport
             if y + VSTEP < self.scroll: continue
             self.canvas.create_text(x, y - self.scroll, text=c)
+
+        total_height = self.display_list[-1][1] + VSTEP
+
+        if total_height > HEIGHT:
+            scrollbar_height = HEIGHT * (HEIGHT / total_height)
+            scrollbar_y = HEIGHT * (self.scroll / total_height)
+
+            self.canvas.create_rectangle(
+                WIDTH - 10,
+                scrollbar_y,
+                WIDTH,
+                scrollbar_y + scrollbar_height,
+                fill="#C0C0C0"
+            )
 
 # filters tags<>
 def lex(body):
