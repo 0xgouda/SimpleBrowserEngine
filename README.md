@@ -8,4 +8,4 @@ A lightweight web browser implementation designed to demonstrate core browser fu
 python3 source.py <https://your-site.tld>
 ```
 ## Result
-![alt text](image-1.png)
+![The Browser Opening japanese text page](assets/image-1.png)
