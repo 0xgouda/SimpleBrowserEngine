@@ -2,16 +2,18 @@ import socket
 import ssl
 import time
 import gzip
+import tkinter
 
 class URL:
-    def __init__(self, url, redirect_count):
+    def __init__(self, url, redirect_count=0):
         # checks if view-source scheme is in use
         self.scheme, url = url.split(":", 1)
         assert self.scheme in ["http", "https", "file", "data", "view-source"]
         self.view_source = False
         if self.scheme == "view-source":
             self.view_source = True
-
+            self.scheme, url = url.split("://", 1)
+        
         # save the number of redirects
         self.redirect_count = redirect_count
 
@@ -26,10 +28,10 @@ class URL:
         if self.scheme == "data":
             self.mediatype, self.data = url.split(",", 1)
             return
-
-        # ensures that https or http or data or file is in use
-        url = url.split("//", 1)[1]
         
+        # reassing the scheme that existed after view-source
+        if self.view_source == False:
+            url = url.split("//", 1)[1]
 
         # if file won't go further with http stuff
         if self.scheme == "file":
@@ -158,7 +160,9 @@ class URL:
                 response = bytearray()
                 for data in chunks:
                     response += data
-            
+            else:
+                response = response.read()
+
             # decodes the data if gzip encoded
             if "content-encoding" in response_headers:
                  content = gzip.decompress(response).decode("utf-8")
@@ -191,39 +195,97 @@ class URL:
         file = open(self.host, 'r')
         return file.read()
 
+# global dimension varibales 
+WIDTH, HEIGHT = 800, 600
+HSTEP, VSTEP = 13, 18
+SCROLL_STEP = 100
 
-def show(body):
-    # printing page text
+# saves all the page text to a list
+def layout(text):
+    display_list = []
+    cursor_x, cursor_y = HSTEP, VSTEP
+    for c in text:
+        display_list.append((cursor_x, cursor_y, c))
+        cursor_x += HSTEP
+        if cursor_x >= WIDTH - HSTEP:
+            cursor_y += VSTEP
+            cursor_x = HSTEP
+
+    return display_list
+
+class Browser:
+    def __init__(self):
+        # creates a windows and attaches it to a canvas
+        self.window = tkinter.Tk()
+        self.canvas = tkinter.Canvas(
+            self.window,
+            width = WIDTH,
+            height = HEIGHT
+        )
+        self.canvas.pack()
+
+        # saves the scrolled distance for later user
+        self.scroll = 0
+
+        # attaches the down arrow key with a method to be called when entered
+        self.window.bind("<Down>", self.scrolldown)
+    
+    # increases the scroll distance and redraws based on it
+    def scrolldown(self, e):
+        self.scroll += SCROLL_STEP
+        self.draw()
+
+    def load(self, url):
+        # determine type of action based on scheme
+        if url.scheme == "file":
+            body = url.open_file()
+        elif url.scheme in ["http", "https", "view-source"]:
+            body = url.request()
+        elif url.scheme == "data": 
+            body = url.data
+
+        # view source required or not
+        if url.view_source == False:
+            text = lex(body)
+        else: 
+            text = body
+        
+        # displays the the text
+        self.display_list = layout(text)
+        self.draw()
+
+    def draw(self):
+        self.canvas.delete("all")
+        for x, y, c in self.display_list:
+            # excludes the chars under the viewport
+            if y > self.scroll + HEIGHT: continue
+            # excludes the chars above the viewport
+            if y + VSTEP < self.scroll: continue
+            self.canvas.create_text(x, y - self.scroll, text=c)
+
+# filters tags<>
+def lex(body):
     in_tag = False
-    result = ""
+    text = ""
     for c in body:
         if c == "<":
             in_tag = True
         elif c == ">":
             in_tag = False
         elif not in_tag:   
-            result += c
+            text += c
 
-    print(result.replace("&lt;", "<").replace("&gt;", ">"))
-    
-def load(url):
-    if url.scheme == "file":
-        body = url.open_file()
-    elif url.scheme in ["http", "https"]:
-        body = url.request()
-    elif url.scheme == "data": 
-        body = url.data
-    
-    if url.view_source == True:
-        print(body)
-    else:
-        show(body)
+    text.replace("&lt;", "<").replace("&gt;", ">")
 
+    return text
+    
 if __name__ == "__main__":
     import sys
     
     try:
         url = sys.argv[1]
     except IndexError:
-        url = "file:///home/ahmed/index.html"
-    load(URL(url, 0))
+        url = "https://example.org"
+    
+    Browser().load(URL(url))
+    tkinter.mainloop()
