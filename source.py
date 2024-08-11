@@ -3,58 +3,58 @@ import ssl
 import time
 import tkinter
 
-### to be implemented blank page if there is no content returned
-
 class URL:
     def __init__(self, url, redirect_count=0):
         # checks if view-source scheme is in use
-        self.scheme, url = url.split(":", 1)
-        assert self.scheme in ["http", "https", "file", "data", "view-source"]
-        self.view_source = False
-        if self.scheme == "view-source":
-            self.view_source = True
-            self.scheme, url = url.split("://", 1)
-        
-        # save the number of redirects
-        self.redirect_count = redirect_count
+        try:
+            self.scheme, url = url.split(":", 1)
+            self.view_source = False
+            if self.scheme == "view-source":
+                self.view_source = True
+                self.scheme, url = url.split("://", 1)
+            
+            # save the number of redirects
+            self.redirect_count = redirect_count
 
-        # initialize the cache dictionary
-        self.cache = {}
+            # initialize the cache dictionary
+            self.cache = {}
 
-        # no socket connections exist
-        self.s = None
-        self.connection = None
+            # no socket connections exist
+            self.s = None
+            self.connection = None
 
-        # check if data scheme is in use
-        if self.scheme == "data":
-            self.mediatype, self.data = url.split(",", 1)
-            return
-        
-        # reassing the scheme that existed after view-source
-        if self.view_source == False:
-            url = url.split("//", 1)[1]
+            # check if data scheme is in use
+            if self.scheme == "data":
+                self.mediatype, self.data = url.split(",", 1)
+                return
+            
+            # reassing the scheme that existed after view-source
+            if self.view_source == False:
+                url = url.split("//", 1)[1]
 
-        # if file won't go further with http stuff
-        if self.scheme == "file":
-            self.host = url
-            return
+            # if file won't go further with http stuff
+            if self.scheme == "file":
+                self.host = url
+                return
 
-        # assigns the host and path to variables
-        if "/" not in url:
-            url = url + "/"
-        self.host, url = url.split("/", 1)
-        self.path = "/" + url
+            # assigns the host and path to variables
+            if "/" not in url:
+                url = url + "/"
+            self.host, url = url.split("/", 1)
+            self.path = "/" + url
 
-        # set the port 
-        if self.scheme == "http":
-            self.port = 80
-        elif self.scheme == "https":
-            self.port = 443
+            # set the port 
+            if self.scheme == "http":
+                self.port = 80
+            elif self.scheme == "https":
+                self.port = 443
 
-        # handle custom ports
-        if ":" in self.host:
-            self.host, port = self.host.split(":", 1)
-            self.port = int(port)
+            # handle custom ports
+            if ":" in self.host:
+                self.host, port = self.host.split(":", 1)
+                self.port = int(port)
+        except Exception:
+            self.scheme, self.path = "about", "blank"
     
     # creates the connection socket
     def create_socket(self):
@@ -221,21 +221,27 @@ class Browser:
 
     def load(self, url):
         # determine type of action based on scheme
-        if url.scheme == "file":
-            body = url.open_file()
-        elif url.scheme in ["http", "https", "view-source"]:
-            body = url.request()
-        elif url.scheme == "data": 
-            body = url.data
+        if url.scheme == "about" and url.path == "blank":
+            self.text = "Please Enter a Correct URl"
+        try:    
+            if url.scheme == "file":
+                body = url.open_file()
+            elif url.scheme in ["http", "https", "view-source"]:
+                body = url.request()
+            elif url.scheme == "data": 
+                body = url.data
 
-        # view source required or not
-        if url.view_source == False:
-            self.text = lex(body)
-        else: 
-            self.text = body
+            # view source required or not
+            if url.view_source == False:
+                self.text = lex(body)
+            else: 
+                self.text = body
+            
+            self.display_list = layout(self.text)
+        except:
+            self.text = "Please Enter a Correct URL"
         
         # displays the the text
-        self.display_list = layout(self.text)
         self.draw()
 
     # resizes the screen
@@ -281,26 +287,29 @@ class Browser:
 
     def draw(self):
         self.canvas.delete("all")
-        for x, y, c in self.display_list:
-            # excludes the chars under the viewport
-            if y > self.scroll + HEIGHT: continue
-            # excludes the chars above the viewport
-            if y + VSTEP < self.scroll: continue
-            self.canvas.create_text(x, y - self.scroll, text=c)
+        try:
+            for x, y, c in self.display_list:
+                # excludes the chars under the viewport
+                if y > self.scroll + HEIGHT: continue
+                # excludes the chars above the viewport
+                if y + VSTEP < self.scroll: continue
+                self.canvas.create_text(x, y - self.scroll, text=c)
 
-        total_height = self.display_list[-1][1] + VSTEP
+            total_height = self.display_list[-1][1] + VSTEP
 
-        if total_height > HEIGHT:
-            scrollbar_height = HEIGHT * (HEIGHT / total_height)
-            scrollbar_y = HEIGHT * (self.scroll / total_height)
+            if total_height > HEIGHT:
+                scrollbar_height = HEIGHT * (HEIGHT / total_height)
+                scrollbar_y = HEIGHT * (self.scroll / total_height)
 
-            self.canvas.create_rectangle(
-                WIDTH - 10,
-                scrollbar_y,
-                WIDTH,
-                scrollbar_y + scrollbar_height,
-                fill="#C0C0C0"
-            )
+                self.canvas.create_rectangle(
+                    WIDTH - 10,
+                    scrollbar_y,
+                    WIDTH,
+                    scrollbar_y + scrollbar_height,
+                    fill="#C0C0C0"
+                )
+        except:
+            pass
 
 # filters tags<>
 def lex(body):
@@ -320,11 +329,9 @@ def lex(body):
     
 if __name__ == "__main__":
     import sys
-    
     try:
         url = sys.argv[1]
-    except IndexError:
-        url = "https://example.org"
-    
+    except:
+        url = "no url provided"
     Browser().load(URL(url))
     tkinter.mainloop()
