@@ -165,9 +165,11 @@ class URL:
 
             # decodes the data if gzip encoded
             if "content-encoding" in response_headers:
-                 content = gzip.decompress(response).decode("utf-8")
+                content = gzip.decompress(response).decode("utf-8")
+            elif "transfer-encoding" in response_headers:
+                content = response.decode("utf-8").read()
             else:
-                 content = response.read().decode("utf-8")
+                content = response.decode("utf-8")
 
             # Caching the response
             self.cache_reponse(key, statusline, content, response_headers)
@@ -207,7 +209,7 @@ def layout(text):
     for c in text:
         display_list.append((cursor_x, cursor_y, c))
         cursor_x += HSTEP
-        if cursor_x >= WIDTH - HSTEP:
+        if cursor_x >= WIDTH - HSTEP or c == '\n':
             cursor_y += VSTEP
             cursor_x = HSTEP
 
@@ -227,13 +229,12 @@ class Browser:
         # saves the scrolled distance for later user
         self.scroll = 0
 
-        # attaches the down arrow key with a method to be called when entered
+        # attaches arrow keys and mouse wheel with methods to be called when triggered
         self.window.bind("<Down>", self.scrolldown)
-    
-    # increases the scroll distance and redraws based on it
-    def scrolldown(self, e):
-        self.scroll += SCROLL_STEP
-        self.draw()
+        self.window.bind("<Up>", self.scrollup)
+        self.window.bind("<MouseWheel>",self.on_mouse_wheel) # for windows/macos
+        self.window.bind("<Button-4>", self.on_mouse_scroll) # linux scroll up
+        self.window.bind("<Button-5>", self.on_mouse_scroll) # linux scroll down
 
     def load(self, url):
         # determine type of action based on scheme
@@ -253,6 +254,40 @@ class Browser:
         # displays the the text
         self.display_list = layout(text)
         self.draw()
+
+    # methods to call when arrow keys or mouse wheel are triggered
+
+    def on_mouse_wheel(self, e):
+        if e.delta > 0:
+            if self.scroll > 0:
+                self.scroll -= SCROLL_STEP 
+                self.draw()
+        elif e.delta < 0:
+            if self.scroll + HEIGHT < self.display_list[-1][1]:
+                self.scroll += SCROLL_STEP
+                self.draw()
+
+
+    def on_mouse_scroll(self, e):
+        if e.num == 4:
+            if self.scroll > 0:
+                self.scroll -= SCROLL_STEP 
+                self.draw()
+        elif e.num == 5:
+            if self.scroll + HEIGHT < self.display_list[-1][1]:
+                self.scroll += SCROLL_STEP
+                self.draw()
+
+    def scrollup(self, e):
+        if self.scroll > 0:
+            self.scroll -= SCROLL_STEP 
+            self.draw()
+
+    def scrolldown(self, e):
+        if self.scroll + HEIGHT < self.display_list[-1][1]:
+            self.scroll += SCROLL_STEP
+            self.draw()
+
 
     def draw(self):
         self.canvas.delete("all")
