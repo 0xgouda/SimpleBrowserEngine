@@ -5,4 +5,7 @@ A lightweight web browser implementation designed to demonstrate core browser fu
 ## Usage
 
 ```bash
-python3 source.py https://example.org
+python3 source.py <https://your-site>
+```
+## result
+![Browser Window Showing The Site](assets/image.png)
