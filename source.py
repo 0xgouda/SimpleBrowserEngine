@@ -202,6 +202,7 @@ class Layout:
         self.style = "roman"
         self.size = 12
         self.line = []
+        self.title = False
 
         # loops through each word to determine its shape
         for tok in tokens:
@@ -210,7 +211,6 @@ class Layout:
         # final one for the incompelete line
         self.flush()
     
-
     def token(self, tok):
         if isinstance(tok, Text):
             self.word(tok.text.split())
@@ -234,7 +234,17 @@ class Layout:
             self.flush()
         elif tok.tag == "/p":
             self.flush()
-            self.cursor_y += VSTEP        
+            self.cursor_y += VSTEP   
+        elif tok.tag == 'h1 class="title"':
+            self.flush()
+            self.title = True
+            self.size += 4
+            self.weight = "bold"
+        elif tok.tag == "/h1" and self.title:
+            self.flush()
+            self.title = False
+            self.size -= 2
+            self.weight = "normal"
     
         return self.display_list
 
@@ -245,11 +255,16 @@ class Layout:
         metrics = [font.metrics() for x, word, font in self.line]
         max_ascent = max([metric["ascent"] for metric in metrics])
         baseline = self.cursor_y + 1.25 * max_ascent
-    
+
+        # Centers the title
+        measures = 0
+        if self.title:
+            measures = sum([font.measure(word) for x, word, font in self.line])
+
         # sets the y for each word to be 
         for x, word, font in self.line:
             y = baseline - font.metrics("ascent")
-            self.display_list.append((x, y, word, font))
+            self.display_list.append((((x + ((WIDTH - measures) / 2)) if self.title else x), y, word, font))
 
         max_descent = max([metric["descent"] for metric in metrics])
         self.cursor_y = baseline + 1.25 * max_descent
