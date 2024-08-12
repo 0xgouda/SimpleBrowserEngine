@@ -3,7 +3,9 @@ import ssl
 import time
 import tkinter
 import sys
+import tkinter.font
 
+# handles the url, connection, and returns the response
 class URL:
     def __init__(self, url, redirect_count=0):
         # checks if view-source scheme is in use
@@ -54,7 +56,7 @@ class URL:
             if ":" in self.host:
                 self.host, port = self.host.split(":", 1)
                 self.port = int(port)
-        except Exception:
+        except:
             self.scheme, self.path = "about", "blank"
     
     # creates the connection socket
@@ -176,25 +178,138 @@ class URL:
         file = open(self.host, 'r')
         return file.read()
 
-# global dimension varibales 
+# caching the fonts to speed up text processing
+FONTS = {}
+def get_font(size, weight, style):
+    key = (size, weight, style)
+    if key not in FONTS:
+        font = tkinter.font.Font(size=size, weight=weight, slant=style)
+        # label object speeds the .measure() method
+        label = tkinter.Label(font=font)
+        FONTS[key] = (font, label)
+    
+    return FONTS[key][0]
+
+# processes all the page text and saves it to a list
 WIDTH, HEIGHT = 800, 600
 HSTEP, VSTEP = 13, 18
-SCROLL_STEP = 100
+class Layout:
+    def __init__(self, tokens):
+        self.display_list = []
+        self.cursor_x = HSTEP
+        self.cursor_y = VSTEP
+        self.weight = "normal"
+        self.style = "roman"
+        self.size = 12
+        self.line = []
 
-# saves all the page text to a list
-def layout(text):
-    display_list = []
-    cursor_x, cursor_y = HSTEP, VSTEP
-    for c in text:
-        display_list.append((cursor_x, cursor_y, c))
-        cursor_x += HSTEP
+        # loops through each word to determine its shape
+        for tok in tokens:
+            self.token(tok)
         
-        if cursor_x >= WIDTH - HSTEP or c == '\n':
-            cursor_y += VSTEP
-            cursor_x = HSTEP
+        # final one for the incompelete line
+        self.flush()
+    
 
-    return display_list
+    def token(self, tok):
+        if isinstance(tok, Text):
+            self.word(tok.text.split())
+        elif tok.tag == "i":
+            self.style = "italic"
+        elif tok.tag == "/i":
+            self.style = "roman"
+        elif tok.tag == "b":
+            self.weight = "bold"
+        elif tok.tag == "/b":
+            self.weight = "normal"
+        elif tok.tag == "small":
+            self.size -= 2
+        elif tok.tag == "/small":
+            self.size += 2
+        elif tok.tag == "big":
+            self.size += 4
+        elif tok.tag == "/big":
+            self.size -= 4
+        elif tok.tag == "br":
+            self.flush()
+        elif tok.tag == "/p":
+            self.flush()
+            self.cursor_y += VSTEP        
+    
+        return self.display_list
 
+    # sets the metrics for the words in the line buffer
+    def flush(self):
+        if not self.line: return
+        # calculates the baseline where all words should be on
+        metrics = [font.metrics() for x, word, font in self.line]
+        max_ascent = max([metric["ascent"] for metric in metrics])
+        baseline = self.cursor_y + 1.25 * max_ascent
+    
+        # sets the y for each word to be 
+        for x, word, font in self.line:
+            y = baseline - font.metrics("ascent")
+            self.display_list.append((x, y, word, font))
+
+        max_descent = max([metric["descent"] for metric in metrics])
+        self.cursor_y = baseline + 1.25 * max_descent
+        self.cursor_x = HSTEP
+        self.line = []
+
+
+    # determines the shape and coordinates of the letter
+    def word(self, word):
+        font = get_font(self.size, self.weight, self.style)
+        w = font.measure(word)
+
+        if self.cursor_x + w > WIDTH - HSTEP:
+            self.flush()
+
+        self.line.append((self.cursor_x, word, font))
+        self.cursor_x += w + font.measure(" ")
+               
+# Two classes to differentiate between Tags and Text
+class Text:
+    def __init__(self, text):
+        self.text = text
+
+class Tag:
+    def __init__(self, tag):
+        self.tag = tag
+
+# distributes the body between Text and Tag objects
+def lex(body, view_source):
+    out = []
+
+    # return all the source code
+    if view_source: 
+        for word in body.split():
+            out.append(Text(word))
+        return out
+
+    # filter tags if view-source
+    buffer = ""
+    in_tag = False
+    for c in body:
+        if c == "<":
+            in_tag = True
+            if buffer: out.append(Text(buffer))
+            buffer = ""
+        elif c == ">":
+            in_tag = False
+            out.append(Tag(buffer))
+            buffer = ""
+        else: 
+            buffer += c
+            buffer = buffer.replace("&gt;", ">").replace("&lt;", "<")
+    
+    if not in_tag and buffer:
+        out.append(Text(buffer))
+
+    return out
+
+# initializes the real browser and handles its functions
+SCROLL_STEP = 100
 class Browser:
     def __init__(self):
         # creates a windows and attaches it to a canvas
@@ -220,10 +335,11 @@ class Browser:
         # call the resize method when and resizing happens
         self.window.bind("<Configure>", self.resize)
 
+    # loads the response
     def load(self, url):
         # determine type of action based on scheme
         if url.scheme == "about" and url.path == "blank":
-            self.text = "Please Enter a Correct URl"
+            body = "Please Enter a Correct URl"
         try:    
             if url.scheme == "file":
                 body = url.open_file()
@@ -231,17 +347,13 @@ class Browser:
                 body = url.request()
             elif url.scheme == "data": 
                 body = url.data
-
-            # view source required or not
-            if url.view_source == False:
-                self.text = lex(body)
-            else: 
-                self.text = body
-            
-            self.display_list = layout(self.text)
         except:
-            self.text = "Please Enter a Correct URL"
+            body = "Please Enter a Correct URL"
         
+        # Filter the body from the tags
+        self.text = lex(body, url.view_source)
+        
+        self.display_list = Layout(self.text).display_list
         # displays the the text
         self.draw()
 
@@ -249,7 +361,7 @@ class Browser:
     def resize(self, e):
         global WIDTH, HEIGHT
         WIDTH, HEIGHT = e.width, e.height
-        self.display_list = layout(self.text)
+        self.display_list = Layout(self.text).display_list
         self.draw()
 
     # methods to call when arrow keys or mouse wheel are triggered
@@ -289,12 +401,11 @@ class Browser:
     def draw(self):
         self.canvas.delete("all")
         try:
-            for x, y, c in self.display_list:
+            for x, y, word, font in self.display_list:
                 # excludes the chars under and above the viewport
-                if (y > self.scroll + HEIGHT or y + VSTEP < self.scroll): 
-                    continue
+                if (y > self.scroll + HEIGHT or y + VSTEP < self.scroll): continue
             
-                self.canvas.create_text(x, y - self.scroll, text=c)
+                self.canvas.create_text(x, y - self.scroll, text=word, font=font, anchor="nw")
 
             total_height = self.display_list[-1][1] + VSTEP
 
@@ -311,26 +422,10 @@ class Browser:
                 )
         except:
             pass
-
-# filters tags<>
-def lex(body):
-    in_tag = False
-    text = ""
-    for c in body:
-        if c == "<":
-            in_tag = True
-        elif c == ">":
-            in_tag = False
-        elif not in_tag:   
-            text += c
-
-    text.replace("&lt;", "<").replace("&gt;", ">")
-
-    return text
     
 if __name__ == "__main__":
     if '-h' in sys.argv or '--help' in sys.argv:
-        print("-h or --help: show help menu\n")
+        print("-h or --help: show help menu\nusage: python3 source.py http[s]://example.org")
         exit()
     try:
         url = sys.argv[1]
