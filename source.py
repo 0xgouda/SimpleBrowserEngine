@@ -352,7 +352,6 @@ class Browser:
         
         # Filter the body from the tags
         self.text = lex(body, url.view_source)
-        
         self.display_list = Layout(self.text).display_list
         # displays the the text
         self.draw()
@@ -425,12 +424,12 @@ class Browser:
     
 if __name__ == "__main__":
     if '-h' in sys.argv or '--help' in sys.argv:
-        print("-h or --help: show help menu\nusage: python3 source.py http[s]://example.org")
+        print('\t-h or --help: show help menu\n\tusage: python3 source.py http[s]://example.org\n\tpython3 source.py file://path/to/your/file\n\tpython3 source.py data:text/html,"gouda 3mk"\n\tpython3 source.py view-source:http[s]://example.org')
         exit()
     try:
         url = sys.argv[1]
     except:
-        print("-h or --help: show help menu\nusage: python3 source.py http[s]://example.org")
+        print('\t-h or --help: show help menu\n\tusage: python3 source.py http[s]://example.org\n\tpython3 source.py file://path/to/your/file\n\tpython3 source.py data:text/html,"gouda 3mk"\n\tpython3 source.py view-source:http[s]://example.org')
         exit()
     Browser().load(URL(url))
     tkinter.mainloop()
