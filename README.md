@@ -13,4 +13,4 @@ python3 source.py
            python3 source.py view-source:http[s]://example.org
 ``````
 ## Result
-![](image.png)
+![](assets/image.png)
