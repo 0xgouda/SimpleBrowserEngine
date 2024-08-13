@@ -213,7 +213,8 @@ class Layout:
     
     def token(self, tok):
         if isinstance(tok, Text):
-            self.word(tok.text.split())
+            for word in tok.text.split():
+                self.word(word)
         elif tok.tag == "i":
             self.style = "italic"
         elif tok.tag == "/i":
@@ -279,9 +280,9 @@ class Layout:
 
         if self.cursor_x + w > WIDTH - HSTEP:
             self.flush()
-
-        self.line.append((self.cursor_x, word, font))
-        self.cursor_x += w + font.measure(" ")
+        else:
+            self.line.append((self.cursor_x, word, font))
+            self.cursor_x += w + font.measure(" ")
                
 # Two classes to differentiate between Tags and Text
 class Text:
@@ -316,7 +317,9 @@ def lex(body, view_source):
             buffer = ""
         else: 
             buffer += c
-            buffer = buffer.replace("&gt;", ">").replace("&lt;", "<")
+            buffer = buffer.replace("&gt;", ">")
+            buffer = buffer.replace("&lt;", "<")
+            buffer = buffer.replace("&shy;", '\u00AD')
     
     if not in_tag and buffer:
         out.append(Text(buffer))
