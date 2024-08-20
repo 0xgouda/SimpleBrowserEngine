@@ -194,7 +194,7 @@ def get_font(size, weight, style):
 WIDTH, HEIGHT = 800, 600
 HSTEP, VSTEP = 13, 18
 class Layout:
-    def __init__(self, tokens):
+    def __init__(self, tree):
         self.display_list = []
         self.cursor_x = HSTEP
         self.cursor_y = VSTEP
@@ -204,50 +204,64 @@ class Layout:
         self.line = []
         self.title = False
 
-        # loops through each word to determine its shape
-        for tok in tokens:
-            self.token(tok)
+        # initializes the loop over the nodes tree
+        self.recurse(tree)
         
         # final one for the incompelete line
         self.flush()
     
-    def token(self, tok):
-        if isinstance(tok, Text):
-            for word in tok.text.split():
-                self.word(word)
-        elif tok.tag == "i":
+    # handles the (bold, italic, ...etc) text formatting tags and the line breaks
+    def open_tag(self, tag):
+        if tag == "i":
             self.style = "italic"
-        elif tok.tag == "/i":
-            self.style = "roman"
-        elif tok.tag == "b":
+        elif tag == "b":
             self.weight = "bold"
-        elif tok.tag == "/b":
-            self.weight = "normal"
-        elif tok.tag == "small":
+        elif tag == "small":
             self.size -= 2
-        elif tok.tag == "/small":
-            self.size += 2
-        elif tok.tag == "big":
+        elif tag == "big":
             self.size += 4
-        elif tok.tag == "/big":
-            self.size -= 4
-        elif tok.tag == "br":
+        elif tag == "br":
+            self.flush() 
+        elif tag == "h1" and self.title:
             self.flush()
-        elif tok.tag == "/p":
-            self.flush()
-            self.cursor_y += VSTEP   
-        elif tok.tag == 'h1 class="title"':
-            self.flush()
-            self.title = True
             self.size += 4
             self.weight = "bold"
-        elif tok.tag == "/h1" and self.title:
+
+    # reverts the changes made by open_tag
+    def close_tag(self, tag):
+        if tag == "i":
+            self.style = "roman"
+        elif tag == "b":
+            self.weight = "normal"
+        elif tag == "small":
+            self.size += 2
+        elif tag == "big":
+            self.size -= 4
+        elif tag == "p":
+            self.flush()
+            self.cursor_y += VSTEP
+        elif self.title and tag == "h1":
             self.flush()
             self.title = False
             self.size -= 2
             self.weight = "normal"
-    
-        return self.display_list
+        elif tag == "p":
+            self.flush()
+            self.cursor_y += VSTEP
+
+    # goes over the page nodes to render them in the display_list 
+    def recurse(self, tree):
+        if isinstance(tree, Text):
+            for word in tree.text.split():
+                self.word(word)
+        else:
+            if tree.attributes.get("class") == "title" and tree.tag == "h1":
+                self.title = True
+
+            self.open_tag(tree.tag)
+            for child in tree.children:
+                self.recurse(child)
+            self.close_tag(tree.tag)
 
     # sets the metrics for the words in the line buffer
     def flush(self):
@@ -286,45 +300,129 @@ class Layout:
                
 # Two classes to differentiate between Tags and Text
 class Text:
-    def __init__(self, text):
+    def __init__(self, text, parent=None):
         self.text = text
+        self.children = []
+        self.parent = parent
 
-class Tag:
-    def __init__(self, tag):
+    def __repr__(self):
+        return repr(self.text)
+
+class Element:
+    def __init__(self, tag, attributes, parent):
         self.tag = tag
+        self.attributes = attributes
+        self.children = []
+        self.parent = parent
 
-# distributes the body between Text and Tag objects
-def lex(body, view_source):
-    out = []
+    def __repr__(self):
+        return repr("<" + self.tag + ">")
 
-    # return all the source code
-    if view_source: 
-        for word in body.split():
-            out.append(Text(word))
-        return out
 
-    # filter tags if view-source
-    buffer = ""
-    in_tag = False
-    for c in body:
-        if c == "<":
-            in_tag = True
-            if buffer: out.append(Text(buffer))
-            buffer = ""
-        elif c == ">":
+SELF_CLOSING_TAGS = [
+    "area", "base", "br", "col", "embed", "hr", "img",
+    "input", "link", "meta", "param", "source", "track",
+    "wbr"
+]   
+def print_tree(node, indent=0):
+    print(" " * indent, node)
+    for child in node.children:
+        print_tree(child, indent + 2)
+
+# constructs the document tree
+class HTMLParser:
+    def __init__(self, body):
+        self.body = body
+        self.unfinished = []
+
+    # creates the text node
+    def add_text(self, text):
+        if text.isspace(): return
+        parent = self.unfinished[-1]
+        node = Text(text, parent)
+        parent.children.append(node)
+
+    # creates the tag node
+    def add_tag(self, tag):
+        tag, attributes = self.get_attributes(tag)
+
+        if tag.startswith("!"): return # throughs out comments and DOCTYPE
+        if tag.startswith("/"):
+            if len(self.unfinished) == 1: return
+            node = self.unfinished.pop()
+            parent = self.unfinished[-1]
+            parent.children.append(node)
+        elif tag in SELF_CLOSING_TAGS:
+            parent = self.unfinished[-1]
+            node = Element(tag, attributes, parent)
+            parent.children.append(node)
+        else:
+            parent = self.unfinished[-1] if self.unfinished else None
+            
+            node = Element(tag, attributes, parent)
+            self.unfinished.append(node)
+
+    def get_attributes(self, text):
+        parts = text.split()
+        tag = parts[0].casefold()
+        attributes = {}
+        for attrpair in parts[1:]:
+            if "=" in attrpair:
+                key, value = attrpair.split("=", 1)
+
+                # remove quotes
+                if len(value) > 2 and value[0] in ["'", '"']:
+                    value = value[1:-1]
+
+                attributes[key.casefold()] = value
+            else:
+                attributes[attrpair.casefold()] = ""
+
+        return tag, attributes
+
+    # distributes the body between Text and Tag objects
+    def parse(self, view_source=False):
+        
+        # if view-source return the whole document
+        if view_source:
+            text = self.body
+            
+            text = text.replace("&gt;", ">")
+            text = text.replace("&lt;", "<")
+            text = text.replace("&shy;", '\u00AD')
+            
+            return Text(text)
+
+        else:
+            text = ""
             in_tag = False
-            out.append(Tag(buffer))
-            buffer = ""
-        else: 
-            buffer += c
-            buffer = buffer.replace("&gt;", ">")
-            buffer = buffer.replace("&lt;", "<")
-            buffer = buffer.replace("&shy;", '\u00AD')
-    
-    if not in_tag and buffer:
-        out.append(Text(buffer))
+            for c in self.body:
+                if c == "<":
+                    in_tag = True
+                    if text: self.add_text(text)
+                    text = ""
+                elif c == ">":
+                    in_tag = False
+                    self.add_tag(text)
+                    text = ""
+                else: 
+                    text += c
+                    text = text.replace("&gt;", ">")
+                    text = text.replace("&lt;", "<")
+                    text = text.replace("&shy;", '\u00AD')
+        
+        if not in_tag and text:
+            self.add_text(text)
 
-    return out
+        return self.finish()
+
+    # finishes the unclosed tags and returns the father node
+    def finish(self):
+        while len(self.unfinished) > 1:
+            node = self.unfinished.pop()
+            parent = self.unfinished[-1]
+            parent.children.append(node)
+        return self.unfinished.pop()
 
 # initializes the real browser and handles its functions
 SCROLL_STEP = 100
@@ -332,7 +430,7 @@ class Browser:
     def __init__(self):
         # creates a windows and attaches it to a canvas
         self.window = tkinter.Tk()
-        self.title = "gouda space"
+        self.window.title("0xgouda")
         self.canvas = tkinter.Canvas(
             self.window,
             width = WIDTH,
@@ -368,17 +466,30 @@ class Browser:
         except:
             body = "Please Enter a Correct URL"
         
-        # Filter the body from the tags
-        self.text = lex(body, url.view_source)
-        self.display_list = Layout(self.text).display_list
+        # Gets the html document tree
+        view_source = url.view_source
+        self.nodes = HTMLParser(body).parse(view_source)
+        
+        # returns the Layout specifications
+        self.display_list = Layout(self.nodes).display_list
+
+        # calculate the document total height
+        self.total_height = self.display_list[-1][1] + VSTEP
+        
         # displays the the text
         self.draw()
 
     # resizes the screen
     def resize(self, e):
-        global WIDTH, HEIGHT
+        global WIDTH, HEIGHT 
+        scroll_percent = self.scroll / self.total_height
         WIDTH, HEIGHT = e.width, e.height
-        self.display_list = Layout(self.text).display_list
+        self.display_list = Layout(self.nodes).display_list
+
+        # updates the scroll position 
+        self.total_height = self.display_list[-1][1] + VSTEP
+        self.scroll = min(scroll_percent * self.total_height, max(0, self.total_height - HEIGHT))
+
         self.draw()
 
     # methods to call when arrow keys or mouse wheel are triggered
@@ -386,18 +497,17 @@ class Browser:
     def on_mouse_wheel(self, e):
         if e.delta > 0:
             if self.scroll > 0:
-                self.scroll -= SCROLL_STEP 
+                self.scroll = max(self.scroll - SCROLL_STEP, 0) 
                 self.draw()
         elif e.delta < 0:
             if self.scroll + HEIGHT < self.display_list[-1][1]:
                 self.scroll += SCROLL_STEP
                 self.draw()
 
-
     def on_mouse_scroll(self, e):
         if e.num == 4:
             if self.scroll > 0:
-                self.scroll -= SCROLL_STEP 
+                self.scroll = max(self.scroll - SCROLL_STEP, 0)  
                 self.draw()
         elif e.num == 5:
             if self.scroll + HEIGHT < self.display_list[-1][1]:
@@ -406,7 +516,7 @@ class Browser:
 
     def scrollup(self, e):
         if self.scroll > 0:
-            self.scroll -= SCROLL_STEP 
+            self.scroll = max(self.scroll - SCROLL_STEP, 0) 
             self.draw()
 
     def scrolldown(self, e):
@@ -424,11 +534,9 @@ class Browser:
             
                 self.canvas.create_text(x, y - self.scroll, text=word, font=font, anchor="nw")
 
-            total_height = self.display_list[-1][1] + VSTEP
-
-            if total_height > HEIGHT:
-                scrollbar_height = HEIGHT * (HEIGHT / total_height)
-                scrollbar_y = HEIGHT * (self.scroll / total_height)
+            if self.total_height > HEIGHT:
+                scrollbar_height = HEIGHT * (HEIGHT / self.total_height)
+                scrollbar_y = HEIGHT * (self.scroll / self.total_height)
 
                 self.canvas.create_rectangle(
                     WIDTH - 10,
@@ -442,12 +550,13 @@ class Browser:
     
 if __name__ == "__main__":
     if '-h' in sys.argv or '--help' in sys.argv:
-        print('\t-h or --help: show help menu\n\tusage: python3 source.py http[s]://example.org\n\tpython3 source.py file://path/to/your/file\n\tpython3 source.py data:text/html,"gouda 3mk"\n\tpython3 source.py view-source:http[s]://example.org')
+        print('-h or --help: show help menu\nusage:  python3 source.py http[s]://example.org\n\tpython3 source.py file://path/to/your/file\n\tpython3 source.py data:text/html,"gouda 3mk"\n\tpython3 source.py view-source:http[s]://example.org')
         exit()
     try:
         url = sys.argv[1]
     except:
-        print('\t-h or --help: show help menu\n\tusage: python3 source.py http[s]://example.org\n\tpython3 source.py file://path/to/your/file\n\tpython3 source.py data:text/html,"gouda 3mk"\n\tpython3 source.py view-source:http[s]://example.org')
+        print('-h or --help: show help menu\nusage:  python3 source.py http[s]://example.org\n\tpython3 source.py file://path/to/your/file\n\tpython3 source.py data:text/html,"gouda 3mk"\n\tpython3 source.py view-source:http[s]://example.org')
         exit()
+
     Browser().load(URL(url))
     tkinter.mainloop()
