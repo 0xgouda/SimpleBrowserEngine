@@ -32,7 +32,7 @@ class URL:
                 return
             
             # reassing the scheme that existed after view-source
-            if self.view_source == False:
+            if not self.view_source:
                 url = url.split("//", 1)[1]
 
             # if file won't go further with http stuff
@@ -194,7 +194,7 @@ def get_font(size, weight, style):
 WIDTH, HEIGHT = 800, 600
 HSTEP, VSTEP = 13, 18
 class Layout:
-    def __init__(self, tree):
+    def __init__(self, tree, view_source):
         self.display_list = []
         self.cursor_x = HSTEP
         self.cursor_y = VSTEP
@@ -203,9 +203,11 @@ class Layout:
         self.size = 12
         self.line = []
         self.title = False
+        # self.view_source = view_source
 
         # initializes the loop over the nodes tree
-        self.recurse(tree)
+        if view_source: self.view_source(tree)
+        else: self.recurse(tree)
         
         # final one for the incompelete line
         self.flush()
@@ -285,7 +287,36 @@ class Layout:
         self.cursor_y = baseline + 1.25 * max_descent
         self.cursor_x = HSTEP
         self.line = []
+    
+    # displays the page source with tags being in bold
+    # Note: attributes values with spaces class="bla bla" will have weird output as they are not supported
+    def view_source(self, tree):
+        if isinstance(tree, Text):
+            for word in tree.text.split():
+                self.word(word)
+        else:
+            
+            self.weight = "bold"
+            self.size += 4
 
+            attributes = ''
+            for key in tree.attributes:
+                if key == '/': 
+                    attributes += '/'
+                    continue
+
+                attributes += key + '='
+                attributes += '"' + tree.attributes.get(key) + '" ' 
+
+            self.flush()
+            self.word('<' + tree.tag + ' ' + attributes + '>')
+            self.flush()
+
+            self.weight = "normal"
+            self.size -= 4
+
+            for child in tree.children:
+                self.view_source(child)
 
     # determines the shape and coordinates of the letter
     def word(self, word):
@@ -335,9 +366,31 @@ class HTMLParser:
         self.body = body
         self.unfinished = []
 
+    HEAD_TAGS = [
+        "base", "basefont", "bdsound", "noscript",
+        "link", "meta", "title", "style", "script",
+    ]
+
+    # fix bas written html
+    def implicit_tags(self, tag):
+        while True:
+            open_tags = [node.tag for node in self.unfinished]
+            if open_tags == [] and tag != "html":
+                self.add_tag("html")
+            elif open_tags == ["html"] and tag not in ["head", "body", "/html"]:
+                if tag in self.HEAD_TAGS:
+                    self.add_tag("head")
+                else:
+                    self.add_tag("body")
+            elif open_tags == ["html", "head"] and tag not in ["/head"] + self.HEAD_TAGS:
+                self.add_tag("/head")
+            else:
+                break
+
     # creates the text node
     def add_text(self, text):
         if text.isspace(): return
+        self.implicit_tags(None)
         parent = self.unfinished[-1]
         node = Text(text, parent)
         parent.children.append(node)
@@ -347,6 +400,7 @@ class HTMLParser:
         tag, attributes = self.get_attributes(tag)
 
         if tag.startswith("!"): return # throughs out comments and DOCTYPE
+        self.implicit_tags(tag)
         if tag.startswith("/"):
             if len(self.unfinished) == 1: return
             node = self.unfinished.pop()
@@ -381,35 +435,23 @@ class HTMLParser:
         return tag, attributes
 
     # distributes the body between Text and Tag objects
-    def parse(self, view_source=False):
-        
-        # if view-source return the whole document
-        if view_source:
-            text = self.body
-            
-            text = text.replace("&gt;", ">")
-            text = text.replace("&lt;", "<")
-            text = text.replace("&shy;", '\u00AD')
-            
-            return Text(text)
-
-        else:
-            text = ""
-            in_tag = False
-            for c in self.body:
-                if c == "<":
-                    in_tag = True
-                    if text: self.add_text(text)
-                    text = ""
-                elif c == ">":
-                    in_tag = False
-                    self.add_tag(text)
-                    text = ""
-                else: 
-                    text += c
-                    text = text.replace("&gt;", ">")
-                    text = text.replace("&lt;", "<")
-                    text = text.replace("&shy;", '\u00AD')
+    def parse(self):
+        text = ""
+        in_tag = False
+        for c in self.body:
+            if c == "<":
+                in_tag = True
+                if text: self.add_text(text)
+                text = ""
+            elif c == ">":
+                in_tag = False
+                self.add_tag(text)
+                text = ""
+            else: 
+                text += c
+                text = text.replace("&gt;", ">")
+                text = text.replace("&lt;", "<")
+                text = text.replace("&shy;", '\u00AD')
         
         if not in_tag and text:
             self.add_text(text)
@@ -418,6 +460,8 @@ class HTMLParser:
 
     # finishes the unclosed tags and returns the father node
     def finish(self):
+        if not self.unfinished:
+            self.implicit_tags(None)
         while len(self.unfinished) > 1:
             node = self.unfinished.pop()
             parent = self.unfinished[-1]
@@ -454,6 +498,7 @@ class Browser:
     # loads the response
     def load(self, url):
         # determine type of action based on scheme
+        self.view_source = False
         if url.scheme == "about" and url.path == "blank":
             body = "Please Enter a Correct URl"
         try:    
@@ -463,15 +508,16 @@ class Browser:
                 body = url.request()
             elif url.scheme == "data": 
                 body = url.data
+
+            self.view_source = url.view_source
         except:
             body = "Please Enter a Correct URL"
         
         # Gets the html document tree
-        view_source = url.view_source
-        self.nodes = HTMLParser(body).parse(view_source)
+        self.nodes = HTMLParser(body).parse()
         
         # returns the Layout specifications
-        self.display_list = Layout(self.nodes).display_list
+        self.display_list = Layout(self.nodes, self.view_source).display_list
 
         # calculate the document total height
         self.total_height = self.display_list[-1][1] + VSTEP
@@ -484,7 +530,7 @@ class Browser:
         global WIDTH, HEIGHT 
         scroll_percent = self.scroll / self.total_height
         WIDTH, HEIGHT = e.width, e.height
-        self.display_list = Layout(self.nodes).display_list
+        self.display_list = Layout(self.nodes, self.view_source).display_list
 
         # updates the scroll position 
         self.total_height = self.display_list[-1][1] + VSTEP
