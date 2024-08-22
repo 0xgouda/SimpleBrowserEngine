@@ -295,10 +295,6 @@ class Layout:
             for word in tree.text.split():
                 self.word(word)
         else:
-            
-            self.weight = "bold"
-            self.size += 4
-
             attributes = ''
             for key in tree.attributes:
                 if key == '/': 
@@ -311,9 +307,6 @@ class Layout:
             self.flush()
             self.word('<' + tree.tag + ' ' + attributes + '>')
             self.flush()
-
-            self.weight = "normal"
-            self.size -= 4
 
             for child in tree.children:
                 self.view_source(child)
