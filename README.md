@@ -10,7 +10,7 @@ python3 source.py
     usage: python3 source.py http[s]://example.org
            python3 source.py file://path/to/your/file 
            python3 source.py data:text/html,"gouda 3mk"
-           python3 source.py view-source:[any-scheme]://example.org 
+           python3 source.py view-source:[any-scheme]
 ``````
 ## Result
 ![](assets/image.png)
