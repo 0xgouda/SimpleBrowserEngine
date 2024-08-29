@@ -114,9 +114,10 @@ class Layout:
     # Note: attributes values with spaces class="bla bla" will have weird output as they are not supported
     def view_source(self, tree):
         if isinstance(tree, Text):
-            # apply the current indentaion to the text
+            self.weight = "bold"
             for word in tree.text.split():
                 self.word(word)
+            self.weight = "normal"
         else:
             attributes = ''
             for key in tree.attributes:
@@ -133,6 +134,11 @@ class Layout:
 
             for child in tree.children:
                 self.view_source(child)
+            
+            if tree.tag not in config.SELF_CLOSING_TAGS:
+                self.flush()
+                self.word('</' + tree.tag + '>')
+                self.flush()
 
     # determines the shape and coordinates of the letter
     def word(self, word):
