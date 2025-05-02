@@ -18,8 +18,6 @@ class URL:
 
             self.redirect_count = redirect_count
             self.cache = {}
-            self.socket = None
-            self.connection = None
             self.file = None
 
             self.scheme, url = url.split(":", 1)
@@ -100,20 +98,20 @@ class URL:
         else:
             del self.cache[key]
 
+    # TODO: handle socket closing logic
     def request(self):
         key = self.scheme + "://" + self.host + self.path
         cached_response = self.get_cached_response(key)
         if cached_response == None:
-            if self.socket == None or self.connection != self.host:
-                self.socket = self.create_socket()
+            socket = self.create_socket()
 
             request = f"GET {self.path} HTTP/1.1\r\n"
             request += f"Host: {self.host}\r\n"
             request += "User-Agent: gouda's browser\r\n"
             request += "\r\n"
-            self.socket.send(request.encode("utf8"))
+            socket.send(request.encode("utf8"))
 
-            response = self.socket.makefile("r", encoding="utf-8", newline="\r\n")
+            response = socket.makefile("r", encoding="utf-8", newline="\r\n")
             
             statusline = response.readline()
             _, status_code, _ = statusline.split(" ", 2)
@@ -126,6 +124,7 @@ class URL:
                 response_headers[header.casefold()] = value.strip()
 
             content = response.read(int(response_headers.get("content-length", 0)))
+            socket.close()
 
             self.cache_reponse(key, statusline, content, response_headers)
         else:
