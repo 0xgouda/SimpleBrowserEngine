@@ -45,7 +45,7 @@ class Browser:
             elif url.scheme == "data": 
                 body = url.data
 
-            self.view_source = url.view_source
+            self.view_source = url.view_source_enabled
         except:
             body = "Please Enter a Correct URL"
         

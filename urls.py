@@ -4,64 +4,49 @@ import time
 
 # handles the url parsing, connection creation, sending request and returns the response
 class URL:
+    MAX_REDIRECTS = 5
+
     def __init__(self, url, redirect_count=0):
-        # checks if view-source scheme is in use
         try:
-            self.scheme, url = url.split(":", 1)
-            self.view_source = False
-            if self.scheme == "view-source":
-                self.view_source = True
-                self.scheme, url = url.split("://", 1)
-            
-            # save the number of redirects
+            # future refactor: remove this to allow for captial query params data
+            url = url.lower()
+
+            self.view_source_enabled = False
+            if url[:12] == "view-source:":            
+                self.view_source_enabled = True
+                url = url[12:]
+
             self.redirect_count = redirect_count
-
-            # initialize the cache dictionary
             self.cache = {}
-
-            # no socket connections exist
-            self.s = None
+            self.socket = None
             self.connection = None
+            self.file = None
 
-            # check if data scheme is in use
+            self.scheme, url = url.split(":", 1)
             if self.scheme == "data":
                 self.mediatype, self.data = url.split(",", 1)
                 return
+            url = url[2:]
             
-            # reassing the scheme that existed after view-source
-            if not self.view_source:
-                url = url.split("//", 1)[1]
-
-            # if file won't go further with http stuff
             if self.scheme == "file":
-                self.host = url
+                self.file_name = url
                 return
 
-            # assigns the host and path to variables
-            if "/" not in url:
-                url = url + "/"
-            self.host, url = url.split("/", 1)
-            self.path = "/" + url
+            self.host, self.path = url.split("/", 1)
+            self.path += "/" if self.path != "" else ""
 
-            # set the port 
             if self.scheme == "http":
                 self.port = 80
             elif self.scheme == "https":
                 self.port = 443
 
-            # handle custom ports
             if ":" in self.host:
                 self.host, port = self.host.split(":", 1)
                 self.port = int(port)
         except:
             self.scheme, self.path = "about", "blank"
     
-    # creates the connection socket
     def create_socket(self):
-        # save the current connection's host
-        self.connection = self.host
-
-        # create a socket and establish the connection
         s = socket.socket(
             family = socket.AF_INET,
             type = socket.SOCK_STREAM,
@@ -69,76 +54,69 @@ class URL:
         )
         s.connect((self.host, self.port))
         
-        # create the ssl context socket 
         if self.scheme == "https":
             ctx = ssl.create_default_context()
             s = ctx.wrap_socket(s, server_hostname=self.host)
         
         return s
 
-    # handles redirection
     def redirect(self, response_headers):
-        if self.redirect_count > 5:
+        if self.redirect_count > self.MAX_REDIRECTS:
                 return "Error due to too much redirects"
         self.redirect_count += 1
 
-        location = response_headers["location"]
+        location = response_headers.get("location")
         if location[0] == "/":
             self.path = location
         else:
             self.__init__(location, self.redirect_count)
         return self.request()
 
-    # caching responses
-    def cache_reponse(self, key, status_line, content, reponse_headers):
+    def cache_reponse(self, key, status_line, content, response_headers):
         if status_line.split(" ", 2)[1] == "200":
-            maxage = 3600
-            if "cache-control" in reponse_headers:
-                cache_control = reponse_headers["cache-control"].strip().lower()
-                if ',' not in cache_control:
-                    if 'no-store' in cache_control:
-                        return
-                    elif 'max-age=' in cache_control:
-                        try:
-                            maxage = int(cache_control.split("=", 1)[1])
-                        except ValueError:
-                            maxage = 7200
+            if "cache-control" in response_headers:
+                cache_control = response_headers["cache-control"].strip().lower()
+                directives = cache_control.split(",")
+                if 'no-store' in directives:
+                    return
+
+                if 'max-age=' in directives:
+                    try:
+                        max_age = int(cache_control.split("=", 1)[1])
+                    except ValueError:
+                        max_age = 7200
                 
-            expiration_date = time.time() + maxage
-            self.cache[key] = [status_line, content, reponse_headers, expiration_date]
+            expiration_date = time.time() + max_age
+            self.cache[key] = {"status_line" : status_line, "content": content, "response_headers": response_headers, "expiration_date": expiration_date}
 
-    # retrieve cached reponses
     def get_cached_response(self, key):
-        if key in self.cache:
-            cached_content = self.cache[key]
-            expiration_date = cached_content[3]
-            if time.time() <= expiration_date:
-                return cached_content[:3]
-            else:
-                del self.cache[key]
-        return None
+        if key not in self.cache:
+            return None
 
-    # sends the request and receives the response
+        cached_response = self.cache[key]
+        expiration_date = cached_response.get("content")
+        if time.time() < expiration_date:
+            return cached_response
+        else:
+            del self.cache[key]
+
     def request(self):
         key = self.scheme + "://" + self.host + self.path
-        cached = self.get_cached_response(key)
-        if cached == None:
-            if self.s is None or self.connection != self.host:
-                self.s = self.create_socket()
+        cached_response = self.get_cached_response(key)
+        if cached_response == None:
+            if self.socket == None or self.connection != self.host:
+                self.socket = self.create_socket()
 
-            # sends the request
-            request = "GET {} HTTP/1.1\r\n".format(self.path)
-            request += "Host: {}\r\n".format(self.host)
-            request += "User-Agent: the browser of gouda\r\n"
+            request = f"GET {self.path} HTTP/1.1\r\n"
+            request += f"Host: {self.host}\r\n"
+            request += "User-Agent: gouda's browser\r\n"
             request += "\r\n"
-            self.s.send(request.encode("utf8"))
+            self.socket.send(request.encode("utf8"))
 
-            # receiving the response
-            response = self.s.makefile("r", encoding="utf-8", newline="\r\n")
+            response = self.socket.makefile("r", encoding="utf-8", newline="\r\n")
             
-            # assigning reponse headers to variables
             statusline = response.readline()
-            version, status, explanation = statusline.split(" ", 2)
+            _, status_code, _ = statusline.split(" ", 2)
             
             response_headers = {}
             while True:
@@ -149,28 +127,21 @@ class URL:
 
             content = response.read(int(response_headers.get("content-length", 0)))
 
-            # Caching the response
             self.cache_reponse(key, statusline, content, response_headers)
         else:
-            version, status, explanation = cached[0].split(" ", 2)
-            content = cached[1]
-            response_headers = cached[2]
+            content = cached_response["content"]
+            _, status_code, _ = cached_response["status_line"].split(" ", 2)
 
-        # handle redirects
-        status = int(status)
-        if status >= 300 and status < 400:
+        if int(status_code) >= 300 and int(status_code) < 400:
             return self.redirect(response_headers)
         else:
-            # returning the body
             return content
 
-    # closes the socket connection
     def close(self):
-        if self.s:
-            self.s.close()
-            self.s = None
+        if self.file:
+            self.file.close()
+            self.file = None
 
-    # open local files
     def open_file(self):
-        file = open(self.host, 'r')
-        return file.read()
+        self.file = open(self.file_name, 'r')
+        return self.file.read()
