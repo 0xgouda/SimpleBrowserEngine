@@ -1,7 +1,7 @@
 # processes all the page the body view and saves it to a list
 
 import tkinter.font
-from nodes import Text
+from nodes import Text, Element
 import config
 
 # caching the fonts to speed up text processing
@@ -41,34 +41,42 @@ class Layout:
     def apply_tag_actions(self, tag):
         if tag not in TAG_ACTIONS: return 
         
-        old_values = {}
+        self.old_values = {}
         for key, value in TAG_ACTIONS[tag].items():
             if key == "flush":
                 self.flush_line_buffer()
                 continue
 
             if isinstance(value, int):
-                value += self.key
+                value += getattr(self, key)
 
-            old_values[key] = self.key
+            self.old_values[key] = getattr(self, key)
             setattr(self, key, value)
-
-        yield
+    
+    def revert_tag_actions(self, tag):
+        if tag not in TAG_ACTIONS: return
 
         for key in TAG_ACTIONS[tag]:
-            setattr(self, key, old_values[key])
+            if key == "flush": 
+                self.flush_line_buffer()
+                continue
+            
+            setattr(self, key, self.old_values[key])
          
     def render_node(self, node):
         if isinstance(node, Text):
             for word in node.text.split():
                 self.word(word)
             return
+        elif not self.view_source_enabled and isinstance(node, Element) and node.tag in config.HEAD_TAGS:
+            return
+            
 
         if not self.view_source_enabled:
             self.apply_tag_actions(node.tag)
             for child in node.children:
                 self.render_node(child)
-            self.apply_tag_actions(node.tag)
+            self.revert_tag_actions(node.tag)
             return
 
         attributes = ''
