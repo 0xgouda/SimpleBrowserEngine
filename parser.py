@@ -1,7 +1,7 @@
 # Parses the HTML and Creates the DOM
 
 from nodes import Text, Element
-from config import SELF_CLOSING_TAGS
+from config import SELF_CLOSING_TAGS, HEAD_TAGS
 
 def print_tree(node, indent=0):
     print(" " * indent, node)
@@ -13,23 +13,18 @@ class HTMLParser:
         self.body = body
         self.unfinished = []
 
-    HEAD_TAGS = [
-        "base", "basefont", "bdsound", "noscript",
-        "link", "meta", "title", "style", "script",
-    ]
-
     # fix bad written html
     def implicit_tags(self, tag):
         while True:
             open_tags = [node.tag for node in self.unfinished]
             if open_tags == [] and tag != "html":
                 self.add_tag("html")
-            elif open_tags[-1] == "html" and tag not in ["head", "body", "/html"]:
-                if tag in self.HEAD_TAGS:
+            elif open_tags == ["html"] and tag not in ["head", "body", "/html"]:
+                if tag in HEAD_TAGS:
                     self.add_tag("head")
                 else:
                     self.add_tag("body")
-            elif open_tags[-1] == "head" and tag not in self.HEAD_TAGS:
+            elif open_tags == ["head"] and tag not in HEAD_TAGS:
                 self.add_tag("/head")
             else:
                 break

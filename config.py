@@ -8,3 +8,8 @@ SELF_CLOSING_TAGS = [
     "input", "link", "meta", "param", "source", "track",
     "wbr"
 ]
+
+HEAD_TAGS = [
+        "base", "basefont", "bdsound", "noscript",
+        "link", "meta", "title", "style", "script",
+]
